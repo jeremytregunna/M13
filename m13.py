@@ -26,4 +26,4 @@ def __lldb_init_module(debugger, internal_dict):
     t = threading.Thread(target=thread_entry, args = ())
     t.daemon = True
     t.start()
-    print 'The "m13" python command has been installed and is ready for use.'
+    print 'The "m13" python command has been installed and is ready for use.\n'
