@@ -10,9 +10,22 @@ from bottle import Bottle, route, run
 
 app = Bottle()
 
+def debugger_info():
+    return {
+        'version':lldb.debugger.GetVersionString(),
+        'name':lldb.debugger.GetInstanceName(),
+        'prompt':lldb.debugger.GetPrompt(),
+        'num_targets':lldb.debugger.GetNumTargets()
+    }
+
 @app.route('/info')
 def info():
-    return json.dumps({'version':lldb.debugger.GetVersionString()})
+    return json.dumps(debugger_info())
+
+@app.route('/debugger/prompt/:prompt')
+def set_prompt(prompt):
+    lldb.debugger.SetPrompt(prompt)
+    return json.dumps(debugger_info())
 
 def m13(debugger, command, result, internal_dict):
     result.PrintCString("Unimplemented")
