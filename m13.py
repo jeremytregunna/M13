@@ -49,7 +49,7 @@ def info_for_target(target):
     modules = []
     for m in target.module_iter():
         modules.append(m.GetUUIDString())
-    info = {
+    return {
         'valid':       target.IsValid(),
         'debugger_id': target.GetDebugger().GetID(),
         'exe':         target.GetExecutable().GetFilename(),
@@ -57,25 +57,91 @@ def info_for_target(target):
         'breakpoints': breakpoints,
         'modules':     modules
     }
-    return info
 
 def info_for_target_at_index(idx):
     target = lldb.debugger.GetTargetAtIndex(idx)
     return info_for_target(target)
 
-@app.get('/target/selected')
-def selected_target_info():
-    response.content_type = 'application/json; charset=utf8'
-    target = lldb.debugger.GetSelectedTarget()
-    return json.dumps(info_for_target(target))
-
-@app.get('/target/info/:idx')
+@app.get('/target/:idx')
 def target_info(idx):
     response.content_type = 'application/json; charset=utf8'
-    return json.dumps(info_for_target(idx))
+    if idx == 'selected':
+        return json.dumps(info_for_target(lldb.debugger.GetSelectedTarget()))
+    else:
+        return json.dumps(info_for_target_at_index(int(idx)))
+
+def frame_info(frame):
+    registers = []
+    for r in frame.GetRegisters():
+        registers.append(r.GetValue())
+    return {
+        'id': frame.GetFrameID(),
+        'pc': frame.GetPC(),
+        'sp': frame.GetSP(),
+        'fp': frame.GetFP(),
+        'function_name': frame.GetFunctionName(),
+        'inlined':       frame.IsInlined(),
+        'registers':     registers,
+        'arguments':     [], #frame.get_arguments()
+        'locals':        [], #frame.get_locals()
+        'statics':       [], #frame.get_statics()
+    }
+
+def thread_info(thread):
+    frames = []
+    for f in thread.get_thread_frames():
+        frames.append(frame_info(f))
+    return {
+        'id':         thread.GetThreadID(),
+        'name':       thread.GetName(),
+        'queue_name': thread.GetQueueName(),
+        'frames':     frames
+    }
+
+def process_info_for_target(target):
+    process = target.process
+    threads = []
+    for t in process.get_process_thread_list():
+        threads.append(thread_info(t))
+    return {
+        'id':        process.GetProcessID(),
+        'state':     process.GetState(),
+        'byteorder': process.GetByteOrder(),
+        'threads':   threads
+    }
+
+def target_for_idx(idx):
+    if idx == 'selected':
+        target = lldb.debugger.GetSelectedTarget()
+    else:
+        target = lldb.debugger.GetTargetAtIndex(int(idx))
+    return target
+
+@app.get('/target/:idx/process')
+def process_info(idx):
+    response.content_type = 'application/json; charset=utf8'
+    target = target_for_idx(idx)
+    return json.dumps(process_info_for_target(target))
+
+@app.get('/target/:idx/process/:action')
+def process_action(idx, action):
+    response.content_type = 'application/json; charset=utf8'
+    target = target_for_idx(idx)
+    process = target.process
+    if action == 'continue':
+        process.Continue()
+    elif action == 'stop':
+        process.Stop()
+    elif action == 'kill':
+        process.Kill()
+    elif action == 'detach':
+        process.Detach()
+    else:
+        return json.dumps({'error':{'message': 'Unknown action.'}})
+    return json.dumps(process_info_for_target(target))
 
 def m13(debugger, command, result, internal_dict):
-    result.PrintCString("Unimplemented")
+    print 'm13 command does nothing currently.\n'
 
 def thread_entry():
     app.run(host='localhost', port=8080, debug=False)
