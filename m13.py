@@ -5,17 +5,29 @@ import commands
 import optparse
 import threading
 import json
+import select
+import pybonjour
 import bottle
 from bottle import Bottle, route, run, request, response
 
 app = Bottle()
+
+def get_registers(frame, kind):
+    '''Returns the registers given the frame and the kind of registers desired.
+    Returns None if there's no such kind.
+    '''
+    registerSet = frame.GetRegisters() # Return type of SBValueList.
+    for value in registerSet:
+        if kind.lower() in value.GetName().lower():
+            return value
+    return None
 
 def debugger_info(debugger):
     targets = []
     for target in debugger:
         targets.append(info_for_target(target))
     return {
-        'id':          debugger.GetID(),    
+        'id':          hex(debugger.GetID()),
         'version':     debugger.GetVersionString(),
         'name':        debugger.GetInstanceName(),
         'prompt':      debugger.GetPrompt(),
@@ -76,10 +88,53 @@ def target_info(idx):
     else:
         return json.dumps(info_for_target_at_index(int(idx)))
 
+def breakpoint_info(breakpoint):
+    return {
+        'id': breakpoint.GetID(),
+        'valid': breakpoint.IsValid(),
+        'enabled': breakpoint.IsEnabled(),
+        'one_shot': breakpoint.IsOneShot(),
+        'internal': breakpoint.IsInternal(),
+        'hit_count': breakpoint.GetHitCount(),
+        'condition': breakpoint.GetCondition(),
+        'thread_id': hex(breakpoint.GetThreadID())
+    }
+
+@app.get('/target/:idx/breakpoints')
+def target_breakpoint_info(idx):
+    response.content_type = 'application/json; charset=utf8'
+    target = target_for_idx(idx)
+    breakpoints = []
+    for b in target.breakpoint_iter():
+        breakpoints.append(breakpoint_info(b))
+    return json.dumps({'breakpoints': breakpoints})
+
+@app.put('/target/:idx/breakpoints/:breakpoint_id/enable')
+def breakpoint_enable(idx, breakpoint_id):
+    response.content_type = 'application/json; charset=utf8'
+    target = target_for_idx(idx)
+    breakpoint = None
+    for b in target.breakpoint_iter():
+        if b.GetID() == int(breakpoint_id):
+            breakpoint = b
+            breakpoint.SetEnabled(not breakpoint.IsEnabled())
+            break
+    return json.dumps(breakpoint_info(breakpoint))
+
 def frame_info(frame):
     registers = []
-    for r in frame.GetRegisters():
-        registers.append(r.GetValue())
+    regs = get_registers(frame, 'general purpose')
+    for reg in regs:
+        registers.append({reg.GetName(): reg.GetValue()})
+    arguments = []
+    for arg in frame.get_arguments():
+        arguments.append({arg.GetName(): arg.GetValue()})
+    local_variables = []
+    for local in frame.get_locals():
+        local_variables.append({local.GetName(): local.GetValue()})
+    statics = []
+    for s in frame.get_statics():
+        statics.append({s.GetName(): s.GetValue()})
     return {
         'id': frame.GetFrameID(),
         'pc': frame.GetPC(),
@@ -88,9 +143,9 @@ def frame_info(frame):
         'function_name': frame.GetFunctionName(),
         'inlined':       frame.IsInlined(),
         'registers':     registers,
-        'arguments':     [], #frame.get_arguments()
-        'locals':        [], #frame.get_locals()
-        'statics':       [], #frame.get_statics()
+        'arguments':     arguments,
+        'locals':        local_variables,
+        'statics':       statics
     }
 
 def thread_info(thread):
@@ -98,17 +153,23 @@ def thread_info(thread):
     for f in thread.get_thread_frames():
         frames.append(frame_info(f))
     return {
-        'id':         hex(thread.GetThreadID()),
+        'id':         thread.GetThreadID(),
         'name':       thread.GetName(),
         'queue_name': thread.GetQueueName(),
         'frames':     frames
     }
 
+def thread_for_id(target, thread_id):
+    for t in target.process.get_process_thread_list():
+        if t.GetThreadID() == thread_id:
+            return t
+    return None
+
 def process_info_for_target(target):
     process = target.process
     threads = []
     for t in process.get_process_thread_list():
-        threads.append(thread_info(t))
+        threads.append(t.GetThreadID())
     return {
         'id':        process.GetProcessID(),
         'state':     process.GetState(),
@@ -146,16 +207,28 @@ def process_action(idx, action):
         return json.dumps({'error':{'message': 'Unknown action.'}})
     return json.dumps(process_info_for_target(target))
 
+@app.get('/target/:idx/thread/:thread_id')
+def target_thread_info(idx, thread_id):
+    response.content_type = 'application/json; charset=utf8'
+    target = target_for_idx(idx)
+    thread = thread_for_id(target, int(thread_id))
+    return json.dumps(thread_info(thread))
+
 def m13(debugger, command, result, internal_dict):
     print 'm13 command does nothing currently.\n'
 
-def thread_entry():
-    app.run(host='localhost', port=8080, debug=False)
+def entry():
+    port = 8080
+    sdRef = pybonjour.DNSServiceRegister(name = 'M13', regtype = '_m13._tcp', port = port)
+    ready = select.select([sdRef], [], [])
+    if sdRef in ready[0]:
+        pybonjour.DNSServiceProcessResult(sdRef)
+    app.run(host = 'localhost', port = port, debug = False)
 
 # And the initialization code to add your commands 
 def __lldb_init_module(debugger, internal_dict):
     debugger.HandleCommand('command script add -f m13.m13 m13')
-    t = threading.Thread(target=thread_entry, args = ())
+    t = threading.Thread(target=entry, args = ())
     t.daemon = True
     t.start()
     print 'The "m13" python command has been installed and is ready for use.\n'
