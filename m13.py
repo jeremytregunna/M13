@@ -100,6 +100,12 @@ def breakpoint_info(breakpoint):
         'thread_id': hex(breakpoint.GetThreadID())
     }
 
+def breakpoint_for_id(target, breakpoint_id):
+    for b in target.breakpoint_iter():
+        if b.GetID() == int(breakpoint_id):
+            return b
+    return None
+
 @app.get('/target/:idx/breakpoints')
 def target_breakpoint_info(idx):
     response.content_type = 'application/json; charset=utf8'
@@ -113,13 +119,12 @@ def target_breakpoint_info(idx):
 def breakpoint_enable(idx, breakpoint_id):
     response.content_type = 'application/json; charset=utf8'
     target = target_for_idx(idx)
-    breakpoint = None
-    for b in target.breakpoint_iter():
-        if b.GetID() == int(breakpoint_id):
-            breakpoint = b
-            breakpoint.SetEnabled(not breakpoint.IsEnabled())
-            break
-    return json.dumps(breakpoint_info(breakpoint))
+    breakpoint = breakpoint_for_id(target, breakpoint_id)
+    if breakpoint:
+        breakpoint.SetEnabled(not breakpoint.IsEnabled())
+        return json.dumps(breakpoint_info(breakpoint))
+    else:
+        return json.dumps({'error':{'message':'Unable to find breakpoint.'}})
 
 def frame_info(frame):
     registers = []
@@ -156,7 +161,8 @@ def thread_info(thread):
         'id':         thread.GetThreadID(),
         'name':       thread.GetName(),
         'queue_name': thread.GetQueueName(),
-        'frames':     frames
+        'frames':     frames,
+        'suspended':  thread.IsSuspended()
     }
 
 def thread_for_id(target, thread_id):
@@ -213,6 +219,28 @@ def target_thread_info(idx, thread_id):
     target = target_for_idx(idx)
     thread = thread_for_id(target, int(thread_id))
     return json.dumps(thread_info(thread))
+
+def step_function_name(action):
+    return {
+        'step_over': 'StepOver',
+        'step_into': 'StepInto',
+        'step_out':  'StepOut',
+        'suspend':   'Suspend',
+        'resume':    'Resume'
+    }.get(action, None)
+
+@app.get('/target/:idx/thread/:thread_id/:step_action')
+def thread_step_over(idx, thread_id, step_action):
+    response.content_type = 'application/json; charset=utf8'
+    target = target_for_idx(idx)
+    thread = thread_for_id(target, int(thread_id))
+    if thread:
+        function_name = step_function_name(step_action)
+        function = getattr(thread, function_name)
+        function()
+        return json.dumps(thread_info(thread))
+    else:
+        return json.dumps({'error':{'message':'Unable to step over instruction.'}})
 
 def m13(debugger, command, result, internal_dict):
     print 'm13 command does nothing currently.\n'
