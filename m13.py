@@ -42,6 +42,12 @@ def set_prompt():
     lldb.debugger.SetPrompt(prompt)
     return json.dumps(debugger_info(lldb.debugger))
 
+@app.put('/debugger/async')
+def set_async():
+    response.content_type = 'application/json; charset=utf8'
+    lldb.debugger.SetAsync(not lldb.debugger.GetAsync())
+    return json.dumps(debugger_info(lldb.debugger))
+
 def info_for_target(target):
     breakpoints = []
     for b in target.breakpoint_iter():
@@ -92,7 +98,7 @@ def thread_info(thread):
     for f in thread.get_thread_frames():
         frames.append(frame_info(f))
     return {
-        'id':         thread.GetThreadID(),
+        'id':         hex(thread.GetThreadID()),
         'name':       thread.GetName(),
         'queue_name': thread.GetQueueName(),
         'frames':     frames
