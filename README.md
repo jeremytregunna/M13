@@ -4,9 +4,12 @@ M13 is an LLDB script which gives you a REST API to interact with LLDB.
 
 ## Dependencies
 
-M13 has only one external dependency: Bottle.
+M13 has two external dependencies:
 
 * bottle v0.11+ (may work with earlier versions)
+* pybonjour
+
+You can easy_install / pip both of these.
 
 ## Installation
 
