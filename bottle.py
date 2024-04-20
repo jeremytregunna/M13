@@ -456,7 +456,8 @@ class Route(object):
 
     def prepare(self):
         ''' Do all on-demand work immediately (useful for debugging).'''
-        self.call
+        #self.call
+        pass
 
     @property
     def _context(self):
@@ -2947,14 +2948,15 @@ class SimpleTemplate(BaseTemplate):
     def re_pytokens(cls):
         ''' This matches comments and all kinds of quoted strings but does
             NOT match comments (#...) within quoted strings. (trust me) '''
-        return re.compile(r'''
-            (''(?!')|""(?!")|'{6}|"{6}    # Empty strings (all 4 types)
-             |'(?:[^\\']|\\.)+?'          # Single quotes (')
-             |"(?:[^\\"]|\\.)+?"          # Double quotes (")
-             |'{3}(?:[^\\]|\\.|\n)+?'{3}  # Triple-quoted strings (')
-             |"{3}(?:[^\\]|\\.|\n)+?"{3}  # Triple-quoted strings (")
-             |\#.*                        # Comments
-            )''', re.VERBOSE)
+            quote_types = [
+                ("'", r"'(?:[^\\']|\\.)*'"),  # Single quotes (')
+                ('"', r'"(?:[^\\"]|\\.)*"'),  # Double quotes (")
+                ("'''", r"""'''(?:[^\\]|\\.|\n)*'''"""),  # Triple-quoted strings (')
+                ('"""', r'''"""(?:[^\\]|\\.|\n)*"""''')  # Triple-quoted strings (")
+            ]
+            pattern = "|".join([rf"({re.escape(quote)}{inner})" for quote, inner in quote_types])
+            pattern += r"|{6}|\"{6}|\#.*"
+            return re.compile(pattern, re.VERBOSE)
 
     def prepare(self, escape_func=html_escape, noescape=False, **kwargs):
         self.cache = {}
